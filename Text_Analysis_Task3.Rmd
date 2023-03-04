@@ -1,0 +1,547 @@
+---
+title: "Text Analysis of Wuthering Heights (Task3 - Sentence Level Sentiment Analysis)"
+author: "Jessie Xu"
+date: "2021/12/7"
+output: pdf_document
+df_print: kable
+latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+library(tidyverse)
+library(scales)
+library(methods)
+library(knitr)
+library(kableExtra)
+
+library(janeaustenr)
+library(dplyr)
+library(stringr)
+
+library(tidytext)
+library(gutenbergr)
+
+library(scales)
+
+library(png)
+library(jpeg)
+library(grid)
+
+library(sentimentr)
+Sys.setenv(LANGUAGE = "en")
+```
+
+
+
+# Split Sentences Using Truenumber
+
+To verify my assessment of the text, the table below shows the first 3 rows and 2-3 columns of the data frame.
+
+```{r}
+library(knitr)
+library(gutenbergr)
+library(tidyverse)
+library(tnum)
+library(sentimentr)
+
+tnum.authorize("mssp1.bu.edu")
+tnum.setSpace("test2")
+# tnum.getDBPathList(taxonomy="subject", levels=2)
+
+## use query to check TNs
+
+# q20 <- tnum.query("bronte/wuthering_heights# has *", max=3)
+# df20 <- tnum.objectsToDf(q20)
+
+qall  <- tnum.query("bronte/wuthering_heights/section# has text", max = 7000)
+dfall <- tnum.objectsToDf(qall)
+matrix <- dfall[1:3,2:3]#%>% kable(font_size=16)
+library(flextable)
+flextable(matrix) %>% theme_box() %>% autofit() 
+```
+
+# Sentiment Analysis by Sentimentr
+
+```{r,fig.height= 4, fig.width=8}
+# bronte/wuthering_heights/section:0003/paragraph:0001/sentence:0001
+
+all_text <- dfall %>% pull(string.value) %>%  #filter(date == "2021-11-30")  %>%   # str(all_text5): is vector # still have \ " in the beginning and last of each sentence
+                      str_replace_all("\"","") %>% 
+                      str_flatten(collapse = " ")
+# test5 <- get_sentences(all_text5)
+# sentiment(test5)## to get sentiment scores by sentence
+# sentiment_by(test5)## to get sentiment scores aggregated by paragraph
+
+# all_sentences <- all_text %>% 
+#   get_sentences() 
+
+wh_with_senti2 <-
+  all_text %>% 
+  get_sentences() %>%
+  sentiment()
+# by sentence
+wh_with_senti2 %>% 
+  ggplot() + geom_col(aes(x = sentence_id, y = sentiment)) + labs(title="index = 1")
+
+# by 100 sentence
+wh_with_senti2 %>% 
+  group_by(index = sentence_id %/% 100) %>% 
+  summarize(sentiment = sum(sentiment)) %>% 
+    ggplot() + geom_col(aes(x = index, y = sentiment)) + labs(title="index = 100")
+
+
+# wh_with_pol2 <- 
+#   all_text5 %>% 
+#   get_sentences() %>% 
+#   sentiment() %>% 
+#   mutate(polarity_level = ifelse(sentiment < 0.2, "Negative",
+#                                  ifelse(sentiment > 0.2, "Positive","Neutral")))
+#            
+# 
+# wh_with_pol %>% filter(polarity_level == "Negative") #%>% View()
+# 
+# 
+# wh_with_pol2 %>% 
+#   group_by(index = sentence_id %/% 100) %>% 
+#   summarize(sentiment = sum(sentiment)) %>% 
+#     ggplot() + geom_col(aes(x = index, y = sentiment))
+
+# to highlight each sentence with sentiment score in a webpage
+# text_s2 <-
+#   all_text5%>% 
+#   get_sentences()%>% 
+#   as.data.frame()
+
+# colnames(text_s2) = "all_text5"
+
+# text_s2$all_text5 %>% 
+#   #get_sentences() %>% 
+#   sentiment_by() %>% #View()
+#   highlight()
+```
+
+According to the plots above, we noticed that they have similar relative trajectories through the novel as the previous four lexicons plots (in task 2). We see similar dips and peaks in sentiment at about the same places in the novel. And since we use TNs to split the passage into sentence instead of lines, so the scale has changed.
+
+# Words Analysis (compared with Task 2)
+
+```{r}
+pq1 <- tnum.query("bronte/wuthering_heights/section:* has ordinal", max = 5470)
+pqdf1 <- tnum.objectsToDf(pq1)
+
+## Convert pqdf1 into a dataframe to reformat it for para-level analysis
+## start with ordinals -- the gaps in the orginal numbering show where the headings go
+
+library(magrittr)
+bk_df <- pqdf1 %>% separate(col=subject, sep="/para", into = c("section", "para")) 
+
+bk_df %<>% separate(col=section, sep=":", into= c("out","section"))
+
+bk_df %<>% separate(col=para, sep="/", into=c("pars", "sent"))
+
+bk_df %<>% separate(col=pars, sep=":", into=c("out1", "para"))
+
+bk_df %<>% separate(col=sent, sep=":", into=c("out2", "sent"))
+
+bk_df %<>% rename(ordinal=numeric.value)
+
+bk_df %<>% select(section, para, sent, ordinal)
+
+## Now the word counts
+
+pq2 <- tnum.query("bronte/wuthering_heights/section:* has count:#", max = 5470)
+pqdf2 <- tnum.objectsToDf(pq2)
+
+bk_w_df <- pqdf2 %>% separate(col=subject, sep="e:", into=c("out", "sent1"))
+
+bk_w_df %<>% rename(word_count = numeric.value)
+
+bk_w_df %<>% select(sent1, word_count)
+
+bk_df <- cbind2(bk_df, bk_w_df)
+
+## check for anomalies
+# a <- filter(bk_w_df, sent==sent1)
+
+bk_df %<>% select(section, para, sent, ordinal, word_count) 
+
+## now add the text
+
+# pq3 <- tnum.query("wells12/hw12/section:* has text", max = 1800)
+# pqdf3 <- tnum.objectsToDf(pq3)
+
+bk_t_df <- dfall %>% separate(col=subject, sep="e:", into=c("out", "sent1"))
+
+bk_t_df %<>% rename(s_text = string.value)
+
+bk_t_df %<>% select(s_text)
+  
+bk_df <- cbind2(bk_df, bk_t_df)
+
+# qall  <- tnum.query("bronte/wuthering_heights/section# has text", max = 7000)
+# dfall <- tnum.objectsToDf(qall)
+# pq4 <- tnum.query("wells12/hw12/section:* has text", max = 1800)
+# pqdf4 <- tnum.objectsToDf(pq4)
+# bk_tag_df <- qall %>% select(tags)
+
+custom_stop_words <- bind_rows(tibble(word = c("miss","i’m","i’ll","till","he’s","i’ve","it’s","you’ll","master"),
+                                      lexicon = c("custom","pronoun","pronoun","pronoun","pronoun","pronoun","pronoun","pronoun","pronoun")), 
+                               stop_words)
+
+
+tidy_books <- bk_df %>%
+  unnest_tokens(word, s_text)%>%
+  anti_join(custom_stop_words)
+```
+
+
+### 1. an example using "nrc" lexicon
+
+I select out the most frequent words filter by sentiment "joy" from "nrc" lexicon. Comparing to the Task2, the results are almost the same, but I can't figure out why the frequency of some word changed.
+
+```{r}
+
+nrc_joy <- get_sentiments("nrc") %>% 
+  filter(sentiment == "joy")
+
+dt_nrc_joy <- tidy_books %>%
+  inner_join(nrc_joy) %>%
+  count(word, sort = TRUE)
+
+matrix <- dt_nrc_joy[1:10,] #%>% kable(font_size=16)
+library(flextable)
+flextable(matrix) %>% theme_box() %>% autofit() 
+```
+
+
+2. Comparing the three sentiment dictionaries: visualize sentiments using 4 lexicons (still working)
+
+```{r echo=FALSE }
+# tidy_books$sent <- as.numeric(tidy_books$sent)
+# 
+# tidy_books %<>% rename(linenumber = sent)
+# 
+# length <- 100
+# afinn <- tidy_books %>% 
+#   inner_join(get_sentiments("afinn")) %>% 
+#   mutate(method = "AFINN")
+# 
+# bing_nrc_loug <- bind_rows(
+#   tidy_books %>% 
+#     inner_join(get_sentiments("bing")) %>%
+#     mutate(method = "Bing"),
+#   tidy_books %>% 
+#     inner_join(get_sentiments("nrc") %>% 
+#                  filter(sentiment %in% c("positive", 
+#                                          "negative"))
+#     ) %>%
+#     mutate(method = "NRC"),
+#     tidy_books %>% 
+#     inner_join(get_sentiments("loughran") %>% 
+#                  filter(sentiment %in% c("positive", 
+#                                          "negative"))
+#     ) %>%
+#     mutate(method = "Loughran")
+#   ) %>%
+#   count(method, index = linenumber %/% 1, sentiment) %>%
+#   spread(sentiment, n, fill = 0) %>%
+#   mutate(sentiment = positive - negative)
+# 
+# # plot
+# bind_rows(afinn, 
+#           bing_nrc_loug) %>%
+#   ggplot(aes(linenumber, sentiment, fill = method)) +
+#   geom_col(show.legend = FALSE) +
+#   facet_wrap(~method, ncol = 1, scales = "free_y")
+```
+
+### 3. Top 10 words clustered by sentiment from different lexicon:
+
+```{r}
+library(textdata)
+
+visualizelexicon <- function(lexicon){
+  # lexicon <- "nrc"
+  emo <- get_sentiments(lexicon) %>%
+  filter(sentiment == "positive" |
+    sentiment == "negative")# positive, negative, anger, anticipation, disgust, fear, joy, sadness, surprise, and trust
+  
+WH_emo <- tidy_books %>%
+  inner_join(emo) %>% # match words and sentiments
+  count(word, sentiment) %>% # count occurrences while keeping sentiment information
+  arrange(sentiment) # sort according to sentiment
+
+title1 <- paste0(lexicon, seq = " ", "lexicon")
+plot <- WH_emo %>%
+  group_by(sentiment) %>%
+  top_n(10) %>% # take the top 10 words for each sentiment class
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>% # reorder words as a function of number of occurrences
+  ggplot(aes(word, n, fill = sentiment)) + # plot
+  geom_col(color = "black", size = .7, show.legend = FALSE) + # bars
+  scale_fill_brewer(palette = "Accent") +
+  scale_y_continuous(breaks = seq(0, 100, 25)) + # x-axis: tick marks
+  geom_hline(
+    yintercept = seq(0, 100, 25), # reference lines
+    linetype = "dotted", # line: type
+    colour = "#ffffff", # line: color
+    size = .8, # line: thickness
+    alpha = .5 # line: transparency
+  ) +
+  geom_text(aes(label = n), # add numbers next to bars
+    size = 3, # text size
+    position = position_dodge(.9), vjust = .5, hjust = -.2 # text position
+  ) +
+  labs(
+    title = title1, # labels: title
+    x = NULL, y = NULL # labels: x-axis
+    #y = "number of occurrences" # labels: y-axis
+  ) +
+  facet_wrap(~sentiment, scales = "free_y") + # subplots according to sentiment
+  coord_flip() + # flip axes
+  theme_bw()
+  return(plot)
+}
+v1 <- visualizelexicon("bing")
+v2 <- visualizelexicon("nrc")
+v3 <- visualizelexicon("loughran")
+
+
+afinn_emo <- tidy_books %>% 
+  inner_join(get_sentiments("afinn")) %>% 
+  mutate(sentiment = ifelse(value < 0, "Negative","Positive"))%>%
+  count(word, sentiment) %>% # count occurrences while keeping sentiment information
+  arrange(sentiment)
+
+v0 <- afinn_emo %>%
+  group_by(sentiment) %>%
+  top_n(10) %>% # take the top 10 words for each sentiment class
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>% # reorder words as a function of number of occurrences
+  ggplot(aes(word, n, fill = sentiment)) + # plot
+  geom_col(color = "black", size = .7, show.legend = FALSE) + # bars
+  scale_fill_brewer(palette = "Accent") +
+  scale_y_continuous(breaks = seq(0, 100, 25)) + # x-axis: tick marks
+  geom_hline(
+    yintercept = seq(0, 100, 25), # reference lines
+    linetype = "dotted", # line: type
+    colour = "#ffffff", # line: color
+    size = .8, # line: thickness
+    alpha = .5 # line: transparency
+  ) +
+  geom_text(aes(label = n), # add numbers next to bars
+    size = 3, # text size
+    position = position_dodge(.9), vjust = .5, hjust = -.2 # text position
+  ) +
+  labs(
+    title = "Afinn lexicon", # labels: title
+    x = NULL, y = NULL# labels: x-axis
+   # y = "number of occurrences" # labels: y-axis
+  ) +
+  facet_wrap(~sentiment, scales = "free_y") + # subplots according to sentiment
+  coord_flip() + # flip axes
+  theme_bw()
+
+library(gridExtra)
+grid.arrange(v0,v1,v2,v3,ncol=2,nrow=2,top = "Top 10 words clustered by sentiment from different lexicon")+theme(ylabs = "number of occurrences" )
+
+```
+
+### 4. Word Cloud
+
+ Comparing to the Task2, the results are almost the same, only the frequency of some words changes a little.
+
+```{r , warning=FALSE, message=FALSE}
+library(wordcloud)
+library(reshape2)
+library(wordcloud)
+
+tidy_books %>%
+  anti_join(custom_stop_words)%>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("#2f2e87", "#f7798e"),
+                   max.words = 100)
+```
+
+
+
+\newpage
+# EXTRA CREDIT: character analysis
+
+I pick Heathcliff and Catherine as my characters and plot the number of times each one appears in each chapter and the number of times both characters appear in the same paragraphs.
+
+```{r}
+getchapter <- function(df) {
+  #df <- df_CH
+  n <- nrow(df)
+  vector <- rep(0, n)
+  subject <- df$subject
+  for(i in 1 : n) {
+    vector[i] <- as.numeric(substring(str_split(subject[i], "[/]")[[1]][3], 9))
+  }
+  return(vector)
+}
+## Creating Functions For Paragraph Number
+
+getparagraph <- function(df) {
+  #df <- df_CH  
+  #i = 4
+  n <- nrow(df)
+  vector <- rep(0, n)
+  subject <- df$subject
+  for(i in 1 : n) {
+    vector[i] <- as.numeric(substring(str_split(subject[i], "[/]")[[1]][4], 11))
+  }
+  return(vector)
+}
+
+
+tnum.tagByQuery("bronte/wuthering_heights# has * = REGEXP(\" Heathcliff\")", adds=("reference:H"))
+tnum.tagByQuery("bronte/wuthering_heights# has * = REGEXP(\" Catherine\")", adds=("reference:C"))
+tnum.tagByQuery("bronte/wuthering_heights# has * = REGEXP(\" Heathcliff| Catherine\")", adds=("reference:CH"))
+
+H <- tnum.query("@reference:H", max=750)
+C <- tnum.query("@reference:C", max=750)
+CH <- tnum.query("@reference:CH", max=750)
+
+df_CH <- tnum.objectsToDf(CH)
+df_C  <- tnum.objectsToDf(C)
+df_H  <- tnum.objectsToDf(H)
+
+chapt_CH <- getchapter(df_CH)
+para_CH  <- getparagraph(df_CH)
+chapt_H  <- getchapter(df_H)
+para_H   <- getparagraph(df_H)  
+chapt_C  <- getchapter(df_C)
+para_C   <- getparagraph(df_C)  
+# co_occur <- dplyr::filter(Darcy_co_df, grepl('reference:Elizabeth_co', tags))
+# co_ch <- ch_num_df(co_occur)
+# co_para <- para_num_df(co_occur)
+dt_CH <- data.frame(ch = chapt_CH, para = para_CH)
+dt_C  <- data.frame(ch = chapt_C, para = para_C)
+dt_H  <- data.frame(ch = chapt_H, para = para_H)
+
+
+dt_CH_count <- dt_CH %>% group_by(ch) %>% summarize(count = n())
+dt_C_count  <- dt_C  %>% group_by(ch) %>% summarize(count = n())
+dt_H_count  <- dt_H  %>% group_by(ch) %>% summarize(count = n())
+
+g1 <- ggplot(dt_CH_count, aes(x = ch, y = count)) +
+  geom_bar(stat = "identity", fill = "cadetblue3") +
+  geom_smooth(se=F)+
+  labs(x = NULL, title = "Heathcliff/Catherine")
+
+g2 <- ggplot(dt_C_count, aes(x = ch, y = count)) +
+  geom_bar(stat = "identity", fill = "pink") +
+  geom_smooth(se=F)+
+  labs(x = NULL, title = "Catherine")
+
+g3 <- ggplot(dt_H_count, aes(x = ch, y = count)) +
+  geom_bar(stat = "identity", fill = "dodgerblue4") +
+  geom_smooth(se=F)+
+  labs(x = NULL, title = "Heathcliff")
+
+library(gridExtra)
+grid.arrange(g2,g1,g3, ncol=1, nrow=3, top = "Appearance of Charactor in each Chapter", bottom = "Chapter")
+```
+
+
+
+```{r, echo = FALSE,eval = FALSE}
+# code from Allen
+# testtn <- tnum.makeObject("mssp:has-love","code","tnum.tagByQuery(\"* has text = REFEXP(\"love\")\", \"mssp.has-love\")")
+# 
+# testtn
+# 
+# tnum.tegByQuery("@mssp:has-love","mssp:love")
+# # graph
+# subjects <- unique(tnum.getDBP)
+# tnum.graphPathList(subjects)
+# 
+# objs <- tnum.query("* has text", max=35)
+# tnum.graphTnumList(objs, tagpattern = ".*") # we wanna show all the tag so we add tagpattern = ".*"
+# tnum.graphTnumList(objs, tagpattern = ".*:love") # dot star
+
+# # Tag sentences mentioning money
+# tnum.tagByQuery("*bronte/wuthering_heights* has text = REGEXP(\"catherine|heathcliff\",\"i\")", adds="notes:CH")
+# 
+# # Tag mentions of romance
+# tnum.tagByQuery("*sense* has text = REGEXP(\"love|romantic|romance\",\"i\")", adds="notes:love")
+# q20 <- tnum.query("bronte/wuthering_heights# has *", max=3)
+```
+
+
+# Inference:
+
++ All the Haviland and Allen's code;
++ The sentimentr video:
+  + https://www.r-bloggers.com/2020/04/sentiment-analysis-in-r-with-sentimentr-that-handles-negation-valence-shifters/
++ The EDA in the appendix:
+  + https://github.com/BruceMallory/Truenumbers/blob/e017672768b13c1fd98b9dc54c19c1aedbcac582/JaneAusten.pdf
+
+\newpage
+# Appendix:
+
+### Split Sentences Using the Way I Learned Myself
+
+```{r, echo = TRUE, fig.height= 4, fig.width=8}
+wh_s = readLines("https://raw.githubusercontent.com/MA615-Jessie-Xu/Assignment-4/main/WutheringHeights.txt")
+wh_s = paste0(wh_s, collapse = ' ')
+wh_s = gsub('\\t|\\r|\\n', ' ', wh_s)
+wh_s = gsub('\\s+', ' ', wh_s)
+wh_s = trimws(wh_s)
+wh_s <- as.data.frame(wh_s) # 1x1
+
+wh_with_senti <-
+  wh_s%>% 
+  get_sentences()%>%
+  sentiment()
+
+
+wh_with_senti %>% 
+  ggplot() + geom_col(aes(x = sentence_id, y = sentiment))+ labs(title="index = 1")
+
+wh_with_senti %>% 
+  group_by(index = sentence_id %/% 100) %>% 
+  summarize(sentiment = sum(sentiment)) %>% 
+    ggplot() + geom_col(aes(x = index, y = sentiment))+ labs(title="index = 100")
+
+# text_s$wh_s %>% 
+#   #get_sentences() %>% 
+#   sentiment_by() %>% #View()
+#   highlight()
+```
+
+### Other EDA
+
+1. This EDA shows the distribution of the occurrence of Heathcliff and Catherine in each Chapter. Difference colors refer to different paragraphs.
+
+```{r,fig.cap="Distribution of the Appearance of Heathcliff and Catherine in each Chapter", fig.height= 4, fig.width=6}
+ggplot(dt_CH, aes(ch)) +
+  geom_histogram(aes(fill = as.factor(para)), binwidth = 1)+
+  labs(title = "Heathcliff and Catherine")+
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(fill = "Paragraph Number") +
+  xlab("Chapter Number")+theme_bw()
+```
+
+2. Word Cloud: Plot the most frequent words which have real meaning in the whole passage, instead of stop and custom words or personal pronouns.
+
+```{r}
+tidy_books %>%
+  anti_join(custom_stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 100))
+```
+
+
+### Further Steps using tnum
+
+```{r, echo = TRUE, eval=FALSE}
+CHgraph<-tnum.graphTnumList(df_CH$subject)
+tnum.plotGraph(CHgraph)
+```
+
+As you see, I try to make a tree diagram to plot the logical connection between chapters (characters). But I can't use the function like  <tnum.makeTnumPhraseGraph> or <tnum.plotGraph> offered by the "tnum---instructions-and-examples-v1.0.pdf" and other tutorial about tnum. Even I already installed the "tnum" package, the error said I can't use the function. I would like to figure it out later.

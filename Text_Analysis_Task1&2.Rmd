@@ -1,0 +1,433 @@
+---
+title: "Text Analysis of Wuthering Heights (Task1&2)"
+author: "Jessie Xu"
+date: "2021/12/8"
+output: pdf_document
+df_print: kable
+latex_engine: xelatex
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+library(tidyverse)
+library(scales)
+library(methods)
+library(knitr)
+library(kableExtra)
+
+library(janeaustenr)
+library(dplyr)
+library(stringr)
+
+library(tidytext)
+library(gutenbergr)
+
+library(scales)
+
+library(png)
+library(jpeg)
+library(grid)
+
+library(sentimentr)
+Sys.setenv(LANGUAGE = "en")
+```
+
+
+# Introduction
+
+Wuthering Heights is an 1847 novel by Emily Bronte, initially published under the pseudonym Ellis Bell. It concerns two families of the landed gentry living on the West Yorkshire moors, the Earnshaws and the Lintons, and their turbulent relationships with Earnshaw's adopted son, Heathcliff. The novel was influenced by Romanticism and Gothic fiction.
+
+
+# Tidy Text
+
+```{r}
+wh <- gutenberg_download(768)
+
+tidy_wh1 <- wh %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words)%>%
+  count(word, sort = TRUE) 
+
+matrix <- tidy_wh1[1:10,] #%>% kable(font_size=16)
+library(flextable)
+flextable(matrix) %>% theme_box() %>% autofit() 
+```
+
+Firstly, I try to figure out after excluding the stop words what are the most frequent words in Wuthering Heights (show as above), but there is an anomaly in this basic analysis. The words "i’m", "i’ll", "till", "he’s", "i’ve", "it’s", and "you’ll" have no practical meaning, and I am not interested in analyzing them. 
+Also in the later sentiment analysis part, the word "miss" is coded as negative but it is used as a title for young, unmarried women in the book. And the word "master" is coded as positive but it's used as a title for the host of Wuthering Heights. 
+
+So, based on the idea of stop words, I easily add the words mentioned above to a custom stop-words list using bind_rows(), and exclude all of them when I do something analysis in word-level So the most frequent words with actual meaning in Wuthering Heights is: 
+
+```{r echo=FALSE}
+custom_stop_words <- bind_rows(tibble(word = c("miss","i’m","i’ll","till","he’s","i’ve","it’s","you’ll","master"),  
+                                      lexicon = c("custom","pronoun","pronoun","pronoun","pronoun","pronoun","pronoun","pronoun","pronoun")), 
+                               stop_words)
+
+tidy_wh <- wh %>%
+  unnest_tokens(word, text) %>%
+  anti_join(custom_stop_words)%>%
+  count(word, sort = TRUE) 
+
+matrix <- tidy_wh[1:10,] #%>% kable(font_size=16)
+library(flextable)
+flextable(matrix) %>% theme_box() %>% autofit() 
+```
+
+Then I visualize the frequency of the most commonly used words.
+
+```{r}
+tidy_wh %>%
+  filter(n >= 100) %>% 
+  mutate(word = reorder(word, n)) %>% 
+  ggplot(aes(word, n)) + # plot
+  geom_col(aes(fill = word), color = "white", size = .7, show.legend = FALSE) + # bars
+  scale_y_continuous(breaks = seq(0, 450, 50)) + # x-axis: tick marks
+  geom_hline(
+    yintercept = seq(0, 450, 50), # reference lines
+    linetype = "dotted", # line: type
+    colour = "white", # line: color
+    size = .8, # line: thickness
+    alpha = .5 # line: transparency
+  ) +
+  geom_text(aes(label = n), # add numbers next to bars
+    size = 3, # text size
+    position = position_dodge(.9), vjust = .5, hjust = -.2 # text position
+  ) +
+  labs(
+    title = "Words that used at least 100 times", # labels: title
+    x = NULL, # labels: x-axis
+    y = "Frequency" # labels: y-axis
+  ) +
+  coord_flip() +
+  theme_bw()
+```
+
+
+# Sentiment Analysis: Words level
+
+There is a contemporary review of Wuthering Heights:
+
+**The American Whig Review wrote**:Respecting a book so original as this, and written with so much power of imagination, it is natural that there should be many opinions. Indeed, its power is so predominant that it is not easy after a hasty reading to analyze one's impressions so as to speak of its merits and demerits with confidence. We have been taken and carried through a new region, a melancholy waste, with here and there patches of beauty; have been brought in contact with fierce passions, with extremes of love and hate, and with sorrow that none but those who have suffered can understand.
+
+(https://en.wikipedia.org/wiki/Wuthering_Heights#Contemporary_reviews )
+
+As you can see, Wuthering Heights contains extreme emotions and is a story of love, revenge, and forgiveness. So I assume that the tone of this book is negative. Then I use 4 sentiment lexicons to analyze the sentiment of this book at a sentence level. I choose the fourth lexicon by checking "?get_sentiments" in R Documentation. As the **Arguments** of **get_sentiments** said: "lexicon: The sentiment lexicon to retrieve; either "afinn", "bing", "nrc", or "loughran"". So I used "loughran" as my additional lexicon.
+
+|Sentiment Lexicon| Definition|
+| :--:            | :----- |
+|AFINN            |Assigns words with a score between -5 and 5 |
+|bing             |Categorizes words as positive or negative|
+|nrc              |Uses binary yes/no score in categories of positive, negative, anger, anticipation, disgust, fear, joy, sadness, surprise, and trust |
+|loughran         |This lexicon labels words with six possible sentiments important in financial contexts: "negative", "positive", "litigious", "uncertainty", "constraining", or "superfluous" |
+
+
+
+```{r}
+tidy_books <- wh %>%
+  mutate(
+    linenumber = row_number(),
+    chapter = cumsum(str_detect(text, 
+                                regex("^chapter [\\divxlc]", 
+                                      ignore_case = TRUE)))) %>%
+  unnest_tokens(word, text)%>%
+  anti_join(custom_stop_words)
+```
+
+
+### 1. an example using "nrc" lexicon
+
+I select out the most frequent words filtered by sentiment "joy" from "nrc" lexicon
+```{r}
+
+nrc_joy <- get_sentiments("nrc") %>% 
+  filter(sentiment == "joy")
+
+dt_nrc_joy <- tidy_books %>%
+  inner_join(nrc_joy) %>%
+  count(word, sort = TRUE)
+
+matrix <- dt_nrc_joy[1:10,] #%>% kable(font_size=16)
+library(flextable)
+flextable(matrix) %>% theme_box() %>% autofit() 
+```
+
+
+### 2. Comparing the three sentiment dictionaries: visualize sentiments using 4 lexicons
+
+By checking the line number of each chapter, I decided to use 100 lines as my index length. And to make the result comparable, I only use the sentiment "negative" and "positive" classifications from the "nrc", "bing", and "loughran" lexicon.
+
+```{r echo=FALSE }
+linenumber <- tidy_books[tidy_books$word == "chapter",]
+matric <- linenumber[1:10,]
+library(flextable)
+flextable(matrix) %>% theme_box() %>% autofit() #%>% kable(font_size=16)
+# length <- 100
+# wh_sentiment <- tidy_books %>%
+#   inner_join(get_sentiments("bing")) %>%
+#   count(index = linenumber %/% length, sentiment) %>%
+#   spread(sentiment, n, fill = 0) %>%
+#   mutate(sentiment = positive - negative)
+# ggplot(wh_sentiment, aes(index, sentiment)) +
+#   geom_col(show.legend = FALSE) #+
+# facet_wrap(~book, ncol = 2, scales = "free_x")
+
+
+length <- 100
+afinn <- tidy_books %>% 
+  inner_join(get_sentiments("afinn")) %>% 
+  group_by(index = linenumber %/% length) %>% 
+  summarise(sentiment = sum(value)) %>% 
+  mutate(method = "AFINN")
+
+bing_nrc_loug <- bind_rows(
+  tidy_books %>% 
+    inner_join(get_sentiments("bing")) %>%
+    mutate(method = "Bing"),
+  tidy_books %>% 
+    inner_join(get_sentiments("nrc") %>% 
+                 filter(sentiment %in% c("positive", 
+                                         "negative"))
+    ) %>%
+    mutate(method = "NRC"),
+    tidy_books %>% 
+    inner_join(get_sentiments("loughran") %>% 
+                 filter(sentiment %in% c("positive", 
+                                         "negative"))
+    ) %>%
+    mutate(method = "Loughran")
+  ) %>%
+  count(method, index = linenumber %/% length, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+# plot
+bind_rows(afinn, 
+          bing_nrc_loug) %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~method, ncol = 1, scales = "free_y")
+
+
+
+# 90-91 difference the most
+check_books <- wh %>%
+  mutate(
+    linenumber = row_number(),
+    chapter = cumsum(str_detect(text, 
+                                regex("^chapter [\\divxlc]", 
+                                      ignore_case = TRUE))))
+# view(check_books)
+
+```
+
+The four different lexicons for calculating sentiment give results that are different in an absolute sense but have similar relative trajectories throughout the novel. We see similar dips and peaks in sentiment at about the same places in the novel, but the absolute values are significantly different. 
+
+As the book "Text Mining with R" said, "The AFINN lexicon gives the largest absolute values, with high positive values. The lexicon from Bing has lower absolute values and seems to label larger blocks of contiguous positive or negative text. The NRC results are shifted higher relative to the other two, labeling the text more positively, but detecting similar relative changes in the text. We find similar differences between the methods when looking at other novels; the NRC sentiment is high, the AFINN sentiment has more variance, the Bing sentiment appears to find long stretches of similar text, but all three agree roughly on the overall trends in the sentiment through a narrative arc."
+
+
+
+**Matching with the plotline:**
+
+I notice that when the index is about 90, there is an obvious peak followed by a significant dip, which aroused my interest to detect what is the specific plot in this area. 
+
+Line 9000-9100 is in CHAPTER XXIV. Catherine shares her story with Ellen when she went to Wuthering Heights secretly. 
+
+At first, it is a peaceful and lovely memory, as it said "She brought me some warm wine and gingerbread and appeared exceedingly good-natured, and Linton sat in the armchair, and I in the little rocking chair on the hearth-stone, and we laughed and talked so merrily".
+
+Then, Catherine told Ellen her private meeting was detected by Earnshaw, as it said "when Earnshaw burst the door open: having gathered venom with reflection. He advanced direct to us, seized Linton by the arm, and swung him off the seat".  
+
+Suddenly the content is about "I gave him a cut with my whip, thinking perhaps he would murder me. He let go, thundering one of his horrid curses, and I galloped home more than half out of my senses." which has strong negative sentiment.
+
+
+### 3. Top 10 words clustered by sentiment from different lexicon:
+
+```{r}
+library(textdata)
+
+visualizelexicon <- function(lexicon){
+  # lexicon <- "nrc"
+  emo <- get_sentiments(lexicon) %>%
+  filter(sentiment == "positive" |
+    sentiment == "negative")# positive, negative, anger, anticipation, disgust, fear, joy, sadness, surprise, and trust
+  
+WH_emo <- tidy_books %>%
+  inner_join(emo) %>% # match words and sentiments
+  count(word, sentiment) %>% # count occurrences while keeping sentiment information
+  arrange(sentiment) # sort according to sentiment
+
+title1 <- paste0(lexicon, seq = " ", "lexicon")
+plot <- WH_emo %>%
+  group_by(sentiment) %>%
+  top_n(10) %>% # take the top 10 words for each sentiment class
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>% # reorder words as a function of number of occurrences
+  ggplot(aes(word, n, fill = sentiment)) + # plot
+  geom_col(color = "black", size = .7, show.legend = FALSE) + # bars
+  scale_fill_brewer(palette = "Accent") +
+  scale_y_continuous(breaks = seq(0, 100, 25)) + # x-axis: tick marks
+  geom_hline(
+    yintercept = seq(0, 100, 25), # reference lines
+    linetype = "dotted", # line: type
+    colour = "#ffffff", # line: color
+    size = .8, # line: thickness
+    alpha = .5 # line: transparency
+  ) +
+  geom_text(aes(label = n), # add numbers next to bars
+    size = 3, # text size
+    position = position_dodge(.9), vjust = .5, hjust = -.2 # text position
+  ) +
+  labs(
+    title = title1, # labels: title
+    x = NULL, y = NULL # labels: x-axis
+    #y = "number of occurrences" # labels: y-axis
+  ) +
+  facet_wrap(~sentiment, scales = "free_y") + # subplots according to sentiment
+  coord_flip() + # flip axes
+  theme_bw()
+  return(plot)
+}
+v1 <- visualizelexicon("bing")
+v2 <- visualizelexicon("nrc")
+v3 <- visualizelexicon("loughran")
+
+
+afinn_emo <- tidy_books %>% 
+  inner_join(get_sentiments("afinn")) %>% 
+  mutate(sentiment = ifelse(value < 0, "Negative","Positive"))%>%
+  count(word, sentiment) %>% # count occurrences while keeping sentiment information
+  arrange(sentiment)
+
+v0 <- afinn_emo %>%
+  group_by(sentiment) %>%
+  top_n(10) %>% # take the top 10 words for each sentiment class
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>% # reorder words as a function of number of occurrences
+  ggplot(aes(word, n, fill = sentiment)) + # plot
+  geom_col(color = "black", size = .7, show.legend = FALSE) + # bars
+  scale_fill_brewer(palette = "Accent") +
+  scale_y_continuous(breaks = seq(0, 100, 25)) + # x-axis: tick marks
+  geom_hline(
+    yintercept = seq(0, 100, 25), # reference lines
+    linetype = "dotted", # line: type
+    colour = "#ffffff", # line: color
+    size = .8, # line: thickness
+    alpha = .5 # line: transparency
+  ) +
+  geom_text(aes(label = n), # add numbers next to bars
+    size = 3, # text size
+    position = position_dodge(.9), vjust = .5, hjust = -.2 # text position
+  ) +
+  labs(
+    title = "Afinn lexicon", # labels: title
+    x = NULL, y = NULL# labels: x-axis
+   # y = "number of occurrences" # labels: y-axis
+  ) +
+  facet_wrap(~sentiment, scales = "free_y") + # subplots according to sentiment
+  coord_flip() + # flip axes
+  theme_bw()
+
+library(gridExtra)
+grid.arrange(v0,v1,v2,v3,ncol=2,nrow=2,top = "Top 10 words clustered by sentiment from different lexicon")+theme(ylabs = "number of occurrences" )
+
+```
+
+Comparing the occurrences of the specific "positive, negative" vocabulary, we can tell that since different lexicon consists of different words (like evaluation criteria), it makes sense that the results of sentimental analysis above are different.
+
+### 4. Word Cloud
+
+Using "bing" lexicon to select out the most frequent words that belong to negative and positive sentiment in Wuthering Heights.
+
+```{r warning=FALSE, message=FALSE}
+library(wordcloud)
+library(reshape2)
+library(wordcloud)
+tidy_books %>%
+  anti_join(custom_stop_words)%>%
+  inner_join(get_sentiments("bing")) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+  comparison.cloud(colors = c("#2f2e87", "#f7798e"),
+                   max.words = 100)
+```
+
+
+# Inference:
+
+https://www.tidytextmining.com/
+
+http://yphuang.github.io/blog/2016/03/04/text-mining-tm-package/
+
+\newpage
+# Appendix:
+
+- About additional lexicons:
+
+Actually, I don't think "loughran" is an ideal lexicon to analyze fiction because this lexicon is for financial contexts. As I search for other lexicons resources from GitHub, I noticed someone generate their personal additional lexicon, which aroused my interest. I want to try it for myself later.
+
+
+- Other EDA: 
+
+Visualize other sentiment from nrc lexicon: anger, anticipation, disgust, fear, joy, sadness, surprise, and trust.
+
+```{r}
+# get sentiment classifications from the NRC lexicon
+library(textdata)
+nrc_emo2 <- get_sentiments("nrc") %>%
+  filter(sentiment == "anger" |
+           sentiment == "anticipation" |
+           sentiment == "disgust" |
+           sentiment == "fear" |
+           sentiment == "joy" | 
+           sentiment == "sadness" |
+           sentiment == "surprise"| 
+           sentiment == "trust" )# positive, negative, anger, anticipation, disgust, fear, joy, sadness, surprise, and trust
+
+WH_emo2 <- tidy_books %>%
+  inner_join(nrc_emo2) %>% # match words and sentiments
+  count(word, sentiment) %>% # count occurrences while keeping sentiment information
+  arrange(sentiment) # sort according to sentiment
+
+# what are the mo2st commo2n words split into joy, anger, fear, and sadness?
+WH_emo2 %>%
+  group_by(sentiment) %>%
+  top_n(10) %>% # take the top 10 words for each sentiment class
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>% # reorder words as a function of number of occurrences
+  ggplot(aes(word, n, fill = sentiment)) + # plot
+  geom_col(color = "black", size = .7, show.legend = FALSE) + # bars
+  scale_fill_brewer(palette = "Set3") +
+  scale_y_continuous(breaks = seq(0, 125, 25)) + # x-axis: tick marks
+  geom_hline(
+    yintercept = seq(0, 125, 25), # reference lines
+    linetype = "dotted", # line: type
+    colour = "#ffffff", # line: color
+    size = .8, # line: thickness
+    alpha = .5 # line: transparency
+  ) +
+  geom_text(aes(label = n), # add numbers next to bars
+    size = 3, # text size
+    position = position_dodge(.9), vjust = .5, hjust = -.2 # text position
+  ) +
+  labs(
+    title = "Top 10 words clustered by sentiment", # labels: title
+    x = NULL, # labels: x-axis
+    y = "number of occurrences" # labels: y-axis
+  ) +
+  facet_wrap(~sentiment, scales = "free_y") + # subplots according to sentiment
+  coord_flip() + # flip axes
+  theme_bw()
+
+```
+
+\newpage
+Another word cloud: 
+
+Plot the most frequent words which have real meaning in the whole passage, instead of stop and custom words or personal pronouns.
+
+```{r}
+tidy_books %>%
+  anti_join(custom_stop_words) %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 100))
+```
+
